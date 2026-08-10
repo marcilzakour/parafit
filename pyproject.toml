@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "parafit"
+version = "0.0.1"
+description = "A pluggable analytical solver for parametric model fitting (hands, bodies, objects) from multi-view evidence."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Marsil Zakour" }]
+keywords = ["levenberg-marquardt", "hand-pose", "MANO", "SMPL-X", "multi-view", "solver", "differentiable-optimization"]
+
+# Core stays light: only torch. torch+CUDA is best installed by the user for
+# their platform first, so we depend loosely rather than hard-pinning.
+dependencies = ["torch>=2.1", "numpy>=1.23"]
+
+[project.optional-dependencies]
+# Parametric hand/body models.
+mano = ["smplx>=0.1.28"]          # manotorch is git-only -> see [tool.uv.sources]
+smplx = ["smplx>=0.1.28"]
+umetrack = []                      # torch-only + a profile-json loader (vendored)
+# Energies with heavy geometry deps.
+contact = ["mesh2sdf>=1.1", "trimesh>=4.0"]
+# Meta.
+all = ["smplx>=0.1.28", "mesh2sdf>=1.1", "trimesh>=4.0"]
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://github.com/marcilzakour/parafit"
+Repository = "https://github.com/marcilzakour/parafit"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/parafit"]
+
+# uv-specific: git-only dependencies (manotorch has no PyPI release). Installs
+# cleanly under `uv pip install 'parafit[mano]'`; a plain-pip PyPI build cannot
+# declare git deps, so document manotorch as a manual step there.
+[tool.uv.sources]
+manotorch = { git = "https://github.com/lixiny/manotorch.git" }
+
+[dependency-groups]  # PEP 735, consumed by uv
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[tool.ruff]
+line-length = 110
