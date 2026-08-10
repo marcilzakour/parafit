@@ -28,7 +28,7 @@ class RigidKeypointModel(Model):
         R = so3_exp(w)                                        # (B,3,3)
         p = self.canonical.to(params).unsqueeze(0)           # (1,J,3)
         X = torch.einsum("bij,bkj->bki", R, p) + t.unsqueeze(1)  # (B,J,3)
-        return State(landmarks=X)
+        return State(landmarks=X, batch_size=[X.shape[0]])
 
     def landmark_jacobian(self, params: Tensor, state: State) -> Tensor:
         B = params.shape[0]

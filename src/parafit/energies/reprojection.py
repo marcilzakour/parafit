@@ -31,6 +31,12 @@ class ReprojectionEnergy(Energy):
         self.precision = precision
         self.weight = weight
 
+    @classmethod
+    def from_observations(cls, obs, weight: float = 1.0) -> "ReprojectionEnergy":
+        """Build from a batched :class:`Observations` bundle (K, w2c, target_uv,
+        precision) -- the batchable multi-view evidence container."""
+        return cls(PinholeCameras(obs.K, obs.w2c), obs.target_uv, obs.precision, weight)
+
     def linearize(self, model, params: Tensor, state: State) -> GNBlock:
         X = state.landmarks                                  # (B,J,3)
         B, J, _ = X.shape
@@ -51,5 +57,5 @@ class ReprojectionEnergy(Energy):
             Om = self.precision.reshape(B, V * J, 2, 2)
         block = gauss_newton_block(r, Jobs, Om)
         if self.weight != 1.0:
-            block = GNBlock(self.weight * block.A, self.weight * block.g, self.weight * block.cost)
+            block = block * self.weight
         return block

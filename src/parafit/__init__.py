@@ -14,14 +14,14 @@ Quick start (core only, no MANO needed)::
     result = LMSolver(max_iters=15).solve(model, init_params, [ReprojectionEnergy(cams, target_uv)])
 """
 from parafit.core.solver import LMSolver
-from parafit.core.types import GNBlock, ParamSpec, SolveResult, State
+from parafit.core.types import GNBlock, Observations, ParamSpec, SolveResult, State
 from parafit.energies.base import Energy, gauss_newton_block
 from parafit.energies.reprojection import ReprojectionEnergy
 from parafit.io.camera import PinholeCameras
 from parafit.models.base import Model
 from parafit.registry import get_energy, get_model, register_energy, register_model
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 __all__ = [
     "LMSolver",
@@ -29,6 +29,7 @@ __all__ = [
     "Energy",
     "ReprojectionEnergy",
     "PinholeCameras",
+    "Observations",
     "ParamSpec",
     "State",
     "GNBlock",

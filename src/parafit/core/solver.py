@@ -92,7 +92,7 @@ class LMSolver:
             # Re-linearize only the accepted rows (rejected keep old block).
             A = torch.where(accf.unsqueeze(-1), block_try.A, block.A)
             g = torch.where(accf, block_try.g, block.g)
-            block = GNBlock(A, g, cost)
+            block = GNBlock(A=A, g=g, cost=cost, batch_size=[B])
             state = state_try
             lam = torch.where(acc, (lam * self.down).clamp_min(1e-6), (lam * self.up).clamp_max(1e6))
             if self.record:

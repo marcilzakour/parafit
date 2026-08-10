@@ -33,7 +33,7 @@ def gauss_newton_block(r: Tensor, J: Tensor, Omega: Optional[Tensor] = None) -> 
     A = torch.einsum("bmdp,bmde,bmeq->bpq", J, Om, J)
     g = torch.einsum("bmdp,bmde,bme->bp", J, Om, r)
     cost = 0.5 * torch.einsum("bmd,bmde,bme->b", r, Om, r)
-    return GNBlock(A=A, g=g, cost=cost)
+    return GNBlock(A=A, g=g, cost=cost, batch_size=[B])
 
 
 class Energy(ABC):

@@ -26,5 +26,5 @@ class Anchor3DEnergy(Energy):
         J = state.landmark_jac                        # (B,J,3,P)
         block = gauss_newton_block(r, J, self.precision)
         if self.weight != 1.0:
-            block = GNBlock(self.weight * block.A, self.weight * block.g, self.weight * block.cost)
+            block = block * self.weight
         return block

@@ -132,19 +132,37 @@ are live everywhere — one source of truth, no vendoring — before publishing.
 
 ## 6. Roadmap
 
-- **v0.1** — port `ManoModel` (analytic `mano_kinematic_jac`) and `UmeTrackModel`;
-  add the anatomy-barrier energy and the implicit backward. Reproduce UA-Fit and
-  SHOW3D numbers through parafit (same-harness parity is the acceptance gate).
+- **v0.1** — DONE: `ManoModel` (analytic `mano_kinematic_jac`, FD-validated) +
+  tensordict batchable containers. Remaining: `UmeTrackModel`, the anatomy-barrier
+  energy, the implicit backward, and full UA-Fit / SHOW3D parity through parafit
+  (same-harness parity is the acceptance gate).
 - **v0.2** — a `Scene` of multiple `Model`s with cross-body coupling energies
   (hand+object contact), covering the real-time `solve_gn_multi` case; SMPL-X and
   6-DoF object models.
 - **v0.3** — CUDA assembly/solve backend; TensorRT export of the `fixed` path;
   publish to PyPI.
 
-## 7. Status (v0.0.1)
+## 7. Status (v0.1.0)
 
-Core solver + reprojection / 3D-anchor / pose-prior energies implemented and
-validated end-to-end (`tests/test_core_overfit.py`): analytic Jacobian vs
-finite differences max error 5e-11; multi-view rigid overfit to 0.0000px /
-0.0000mm (cost 1.4e3 → 4.6e-27). `ManoModel`, `UmeTrackModel`, and
-`ContactSDFEnergy` are grounded port stubs that name their thesis-hope source.
+**Batchable containers (tensordict).** `State`, `GNBlock`, and the new
+`Observations` (multi-view evidence bundle: K, w2c, target_uv, precision) are
+`tensordict` tensorclasses with a leading batch dim `B`. A whole solve moves
+(`state.to("cuda")`), indexes (`state[mask]`), stacks (`torch.stack`), and
+accumulates (`block_a + block_b`, elementwise) as one object -- the "batchable
+and fast" foundation. `tensordict` is a core dependency.
+
+**Validated end to end** (`tests/`):
+- `test_core_overfit.py` -- analytic Jacobian vs finite differences max error
+  5e-11; multi-view rigid overfit to 0.0000px / 0.0000mm (cost 1.4e3 → 4.6e-27).
+- `test_tensordict_batchable.py` -- State/GNBlock/Observations move, index,
+  stack, add; an `Observations`-driven solve reaches 0.0000mm.
+- `test_mano_model.py` -- `ManoModel` forward (21 OpenPose joints); the analytic
+  kinematic Jacobian matches finite differences at **cos 1.0000 / rel-err 0.004**
+  (the pose-blendshape term is omitted by design, a near-exact GN direction); a
+  multi-view MANO overfit converges to ~1.5mm.
+
+`ManoModel` is now a real, validated model (forward + analytic Jacobian). Note:
+MANO uses boolean-mask ops that `vmap`/`jacrev` cannot batch, so such models must
+provide an analytic Jacobian (as `ManoModel` does) rather than rely on the
+autograd fallback. `UmeTrackModel` and `ContactSDFEnergy` remain grounded port
+stubs that name their thesis-hope source.

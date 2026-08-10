@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "parafit"
-version = "0.0.1"
+version = "0.1.0"
 description = "A pluggable analytical solver for parametric model fitting (hands, bodies, objects) from multi-view evidence."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,9 +12,10 @@ license = { text = "MIT" }
 authors = [{ name = "Marsil Zakour" }]
 keywords = ["levenberg-marquardt", "hand-pose", "MANO", "SMPL-X", "multi-view", "solver", "differentiable-optimization"]
 
-# Core stays light: only torch. torch+CUDA is best installed by the user for
-# their platform first, so we depend loosely rather than hard-pinning.
-dependencies = ["torch>=2.1", "numpy>=1.23"]
+# Core stays light: torch + tensordict (the batchable State/GNBlock/Observations
+# containers). torch+CUDA is best installed by the user for their platform first,
+# so we depend loosely rather than hard-pinning.
+dependencies = ["torch>=2.1", "tensordict>=0.5", "numpy>=1.23"]
 
 [project.optional-dependencies]
 # Parametric hand/body models.

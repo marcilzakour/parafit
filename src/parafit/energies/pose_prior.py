@@ -36,4 +36,4 @@ class PosePriorEnergy(Energy):
         A = W
         g = torch.einsum("bpq,bq->bp", W, r)
         cost = 0.5 * torch.einsum("bp,bpq,bq->b", r, W, r)
-        return GNBlock(A=A, g=g, cost=cost)
+        return GNBlock(A=A, g=g, cost=cost, batch_size=[B])
