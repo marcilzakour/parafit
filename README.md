@@ -5,9 +5,15 @@
 `parafit` fits parametric models -- hands (MANO, UmeTrack), bodies (SMPL-X), and
 6-DoF objects -- to multi-view evidence with a batched, differentiable
 Levenberg-Marquardt solver. Its **energies**, **models**, and **execution
-backend** are all pluggable. It is the shared solver core extracted from the
-UA-Fit / POEM-v2 line of work, so UA-Fit, FuseFit, SHOW3D, and future projects
-depend on one implementation instead of re-porting the same math.
+backend** are all pluggable. It is the reusable solver core behind
+[UA-Fit](https://marcilzakour.github.io/ua-fit/) (ECCV 2026 HANDS Workshop), released
+standalone so new projects depend on one implementation instead of re-porting the same math.
+
+<p align="center">
+  <img src="docs/media/lm_fit.gif" alt="Batched LM solver fitting a MANO hand: mesh converging alongside the decreasing energy" width="640">
+  <br>
+  <em>The LM solver fitting a MANO hand to multi-view evidence, with the energy trajectory live.</em>
+</p>
 
 ## Why
 
@@ -24,21 +30,25 @@ Three ideas, cleanly separated:
 
 ## Install
 
-Core is torch-only; pull only the extras you need:
+Core is torch-only; install from GitHub (PyPI release planned):
 
 ```bash
-pip install parafit                 # core solver + reprojection/anchor/pose-prior energies
-pip install "parafit[mano]"         # + MANO hand model
-pip install "parafit[umetrack]"     # + UmeTrack hand model
-pip install "parafit[contact]"      # + object-SDF contact energy
-pip install "parafit[all]"          # everything
+pip install "git+https://github.com/marcilzakour/parafit.git"                # core solver + reprojection/anchor/pose-prior energies
+pip install "parafit[mano] @ git+https://github.com/marcilzakour/parafit.git"  # + MANO hand model
+pip install "parafit[all] @ git+https://github.com/marcilzakour/parafit.git"   # everything
+```
+
+Or for development:
+
+```bash
+git clone https://github.com/marcilzakour/parafit.git
+cd parafit && pip install -e ".[mano]"
 ```
 
 With **uv** (recommended; resolves the git-only manotorch dep):
 
 ```bash
-uv pip install "parafit[mano]"
-# or in a project:  uv add parafit --extra mano
+uv pip install "parafit[mano] @ git+https://github.com/marcilzakour/parafit.git"
 ```
 
 Install torch for your CUDA build first. MANO weights are not shipped (license):
@@ -66,10 +76,11 @@ python tests/test_core_overfit.py
 
 ## Status
 
-v0.0.1 -- core solver + reprojection / 3D-anchor / pose-prior energies are
-implemented and tested. `ManoModel`, `UmeTrackModel`, and `ContactSDFEnergy` are
-grounded port stubs (each names its source file in the thesis-hope tree).
-Roadmap: MANO/UmeTrack ports -> multi-body scene (hand+object) -> CUDA/TensorRT
+v0.1.0 -- core solver (tensordict-batchable) + reprojection / 3D-anchor /
+pose-prior energies and the `ManoModel` (analytic-Jacobian MANO hand) are
+implemented and tested. `UmeTrackModel` and `ContactSDFEnergy` are interface
+stubs slated for the next release.
+Roadmap: UmeTrack port -> multi-body scene (hand+object) -> CUDA/TensorRT
 backend. See `docs/parafit-library-design.md`.
 
 ## License
