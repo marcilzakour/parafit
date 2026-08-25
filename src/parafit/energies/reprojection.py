@@ -12,7 +12,7 @@ import torch
 from torch import Tensor
 
 from parafit.core.types import GNBlock, State
-from parafit.energies.base import Energy, gauss_newton_block
+from parafit.energies.base import Energy, WeightLike, gauss_newton_block, scale_block
 from parafit.io.camera import PinholeCameras
 
 
@@ -24,7 +24,7 @@ class ReprojectionEnergy(Energy):
         cameras: PinholeCameras,
         target_uv: Tensor,               # (B, V, J, 2) target pixels
         precision: Optional[Tensor] = None,  # (B,V,J,2,2) block, (B,V,J) scalar, or None
-        weight: float = 1.0,
+        weight: WeightLike = 1.0,        # float, or Tensor 0-dim / (B,) for a learned weight
     ):
         self.cameras = cameras
         self.target_uv = target_uv
@@ -32,7 +32,7 @@ class ReprojectionEnergy(Energy):
         self.weight = weight
 
     @classmethod
-    def from_observations(cls, obs, weight: float = 1.0) -> "ReprojectionEnergy":
+    def from_observations(cls, obs, weight: WeightLike = 1.0) -> "ReprojectionEnergy":
         """Build from a batched :class:`Observations` bundle (K, w2c, target_uv,
         precision) -- the batchable multi-view evidence container."""
         return cls(PinholeCameras(obs.K, obs.w2c), obs.target_uv, obs.precision, weight)
@@ -55,7 +55,4 @@ class ReprojectionEnergy(Energy):
             Om = self.precision.reshape(B, V * J)
         else:                                                # (B,V,J,2,2)
             Om = self.precision.reshape(B, V * J, 2, 2)
-        block = gauss_newton_block(r, Jobs, Om)
-        if self.weight != 1.0:
-            block = block * self.weight
-        return block
+        return scale_block(gauss_newton_block(r, Jobs, Om), self.weight)
