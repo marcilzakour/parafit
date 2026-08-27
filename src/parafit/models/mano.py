@@ -65,17 +65,34 @@ class ManoModel(Model):
         produced the parameters, not preferences. Mismatching them is a silent
         ~100 mm error, so they are exposed rather than hardcoded.
 
-        * ``flat_hand_mean=True, center_idx=0`` -- the UA-Fit convention and the
-          default here, kept for backward compatibility: zero pose is a flat hand
-          and the output is wrist-centred before ``trans`` is added.
-        * ``flat_hand_mean=False, center_idx=None`` -- **standard MANO**, used by
-          ARCTIC and by the HaMeR / WiLoR / HaWoR family: zero pose is the MANO
-          mean pose and ``trans`` is the raw MANO translation.
+        ``center_idx=0`` centres the output on the wrist before adding ``trans``;
+        ``center_idx=None`` leaves the MANO template offset in, so the wrist sits
+        ~9.7 cm from ``trans``. ``flat_hand_mean`` selects whether zero pose means
+        a flat hand or the MANO mean pose.
 
-        Verified against ARCTIC: driving this model with ARCTIC's own
-        ``rot_r``/``pose_r``/``trans_r``/``shape_r`` reproduces
-        ``world_coord['verts.right']`` to **0.000 mm** under standard MANO, and is
-        off by **100 mm** under the UA-Fit convention. Match the producer.
+        Measured settings per producer (all verified numerically, see
+        ``tests/test_mano_conventions.py``):
+
+        ========================  ================  ==========  ==============
+        producer                  flat_hand_mean    center_idx  wrong-setting
+        ========================  ================  ==========  ==============
+        UA-Fit (parafit default)  True              0           --
+        ARCTIC GT params          **False**         None        100 mm
+        WiLoR / HaWoR             **True**          None        30.7 mm
+        ========================  ================  ==========  ==============
+
+        ARCTIC and the WiLoR/HaWoR family differ, which is not obvious and is
+        worth stating plainly. ARCTIC stores axis-angle parameters consumed by an
+        axis-angle MANO, which DOES add the mean pose. WiLoR and HaWoR predict
+        rotation matrices consumed by ``smplx.MANOLayer``, which does NOT, because
+        the mean pose is only ever applied in axis-angle space.
+
+        **``smplx.MANOLayer.flat_hand_mean`` reports ``False`` while behaving as
+        ``True``.** It even carries a nonzero ``pose_mean`` (sum ~11.7). Reading
+        that flag and configuring downstream code from it is a silent 30.7 mm
+        error. This also bites when consuming HaWoR's *stored* output, which is
+        axis-angle (converted via ``rotation_matrix_to_angle_axis``) but must
+        still be evaluated with ``flat_hand_mean=True`` to match the prediction.
         """
         from manotorch.manolayer import ManoLayer  # raises ImportError -> parafit[mano]
 

@@ -65,6 +65,53 @@ def test_wrong_convention_is_catastrophic_not_subtle():
         f"{err.mean()*1000:.1f} mm -- did the default change?")
 
 
+def test_matches_smplx_manolayer_the_hawor_wilor_path():
+    """``smplx.MANOLayer`` (rotmat input) == parafit ``flat_hand_mean=True``.
+
+    **The flag lies.** ``MANOLayer.flat_hand_mean`` reads ``False`` and the layer
+    carries a nonzero ``pose_mean`` (sum ~11.7), but it consumes ROTATION
+    MATRICES, and the mean pose is only ever added in axis-angle space. So the
+    layer behaves as ``flat_hand_mean=True`` regardless of what it reports.
+    Reading the flag and configuring downstream code from it costs **30.7 mm**.
+
+    Consequence, and the reason this test exists: HaWoR predicts rotation
+    matrices through ``MANOLayer`` but *stores* ``pred_hand_pose`` as axis-angle
+    (via ``rotation_matrix_to_angle_axis``). Feeding those stored axis-angle
+    params into an axis-angle MANO with smplx's own default
+    (``flat_hand_mean=False``) silently applies a mean pose that was never in the
+    prediction.
+
+    Net rule:
+      ARCTIC params  -> flat_hand_mean=False, center_idx=None
+      HaWoR  params  -> flat_hand_mean=True,  center_idx=None
+    """
+    smplx = pytest.importorskip("smplx")
+    p3d = pytest.importorskip("pytorch3d.transforms")
+    mano_path = os.path.join(_MANO_ROOT, "models")
+    try:
+        lay = smplx.MANOLayer(model_path=mano_path, gender="neutral",
+                              num_hand_joints=15, create_body_pose=False)
+    except Exception as e:  # pragma: no cover
+        pytest.skip(f"smplx MANOLayer unavailable: {e}")
+
+    torch.manual_seed(0)
+    go, hp = torch.randn(2, 3) * 0.2, torch.randn(2, 45) * 0.1
+    betas, tr = torch.randn(2, 10) * 0.3, torch.randn(2, 3) * 0.1
+    ref = lay(global_orient=p3d.axis_angle_to_matrix(go.reshape(2, 1, 3)),
+              hand_pose=p3d.axis_angle_to_matrix(hp.reshape(2, 15, 3)),
+              betas=betas, transl=tr).vertices
+
+    theta = torch.cat([go, hp, tr], 1)
+    ours = _model(betas=betas, center_idx=None,
+                  flat_hand_mean=True).forward(theta).verts
+    assert (ours - ref).norm(dim=-1).max() * 1000 < 0.5
+
+    wrong = _model(betas=betas, center_idx=None,
+                   flat_hand_mean=False).forward(theta).verts
+    assert (wrong - ref).norm(dim=-1).mean() * 1000 > 10, \
+        "the two conventions should differ by ~30 mm; if not, revisit the docs"
+
+
 def test_default_convention_is_unchanged():
     """Backward compatibility: the default must remain the UA-Fit convention."""
     m = _model()
