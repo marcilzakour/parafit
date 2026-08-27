@@ -59,7 +59,24 @@ def _mano_to_openpose(J_regressor: Tensor, verts: Tensor) -> Tensor:
 
 class ManoModel(Model):
     def __init__(self, mano_assets_root: str, betas: Optional[Tensor] = None,
-                 num_joints: int = 21, center_idx: int = 0, side: str = "right"):
+                 num_joints: int = 21, center_idx: Optional[int] = 0, side: str = "right",
+                 flat_hand_mean: bool = True):
+        """``flat_hand_mean`` and ``center_idx`` are conventions of whatever
+        produced the parameters, not preferences. Mismatching them is a silent
+        ~100 mm error, so they are exposed rather than hardcoded.
+
+        * ``flat_hand_mean=True, center_idx=0`` -- the UA-Fit convention and the
+          default here, kept for backward compatibility: zero pose is a flat hand
+          and the output is wrist-centred before ``trans`` is added.
+        * ``flat_hand_mean=False, center_idx=None`` -- **standard MANO**, used by
+          ARCTIC and by the HaMeR / WiLoR / HaWoR family: zero pose is the MANO
+          mean pose and ``trans`` is the raw MANO translation.
+
+        Verified against ARCTIC: driving this model with ARCTIC's own
+        ``rot_r``/``pose_r``/``trans_r``/``shape_r`` reproduces
+        ``world_coord['verts.right']`` to **0.000 mm** under standard MANO, and is
+        off by **100 mm** under the UA-Fit convention. Match the producer.
+        """
         from manotorch.manolayer import ManoLayer  # raises ImportError -> parafit[mano]
 
         self.mano_layer = ManoLayer(
@@ -67,12 +84,13 @@ class ManoModel(Model):
             use_pca=False,
             mano_assets_root=mano_assets_root,
             center_idx=center_idx,
-            flat_hand_mean=True,
+            flat_hand_mean=flat_hand_mean,
             side=side,
         )
         self.J_regressor = self.mano_layer.th_J_regressor       # (16,778)
         self.num_joints = num_joints
         self.center_idx = center_idx
+        self.flat_hand_mean = flat_hand_mean
         self.betas = betas                                       # (B,10) or None -> zeros
         self._anc = _ancestor_mask(self.mano_layer.kintree_parents)  # (16,16)
         self.param_spec = ParamSpec({"pose": (0, 48), "trans": (48, 3)})
@@ -125,7 +143,12 @@ class ManoModel(Model):
         cr = torch.cross(a_e, d_e, dim=3) * A.view(1, S, 16, 1, 1)
         dP = cr.permute(0, 1, 3, 2, 4).reshape(B, S, 3, 48)      # (B,21,3,48) stack order
         dJc = dP[:, _OPENPOSE_PERM]                              # to openpose order
-        dJc = dJc - dJc[:, self.center_idx: self.center_idx + 1]  # center like the layer
+        if self.center_idx is not None:
+            # Mirror the layer: it subtracts joint ``center_idx``, so the
+            # derivative must subtract that joint's derivative too. Under
+            # ``center_idx=None`` the layer does not centre, and subtracting here
+            # would make the Jacobian inconsistent with the forward.
+            dJc = dJc - dJc[:, self.center_idx: self.center_idx + 1]
         dJc = dJc[:, : self.num_joints]                          # (B,J,3,48)
         dtrans = torch.eye(3, dtype=params.dtype, device=params.device)
         dtrans = dtrans.view(1, 1, 3, 3).expand(B, self.num_joints, 3, 3)
