@@ -31,7 +31,11 @@ def _landmark_jac(model: Model, theta: Tensor, state: State) -> Tensor:
     def single(p: Tensor) -> Tensor:
         return model.forward(p.unsqueeze(0)).landmarks.squeeze(0)  # (J,3)
 
-    return vmap(jacrev(single))(theta)                              # (B,J,3,P)
+    try:
+        return vmap(jacrev(single))(theta)                          # (B,J,3,P)
+    except RuntimeError:                                            # forward not vmap-able (e.g. boolean-mask indexing): per-sample jacobian
+        from torch.autograd.functional import jacobian
+        return torch.stack([jacobian(single, theta[b], vectorize=False) for b in range(theta.shape[0])])
 
 
 class LMSolver:
