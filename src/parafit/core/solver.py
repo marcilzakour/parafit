@@ -47,6 +47,8 @@ class LMSolver:
         up: float = 3.0,
         down: float = 0.3,
         record: bool = False,
+        callback=None,               # optional fn(it, theta, cost) called after every iteration
+        damping_mode: str = "identity",  # "identity": lam*I | "diag": Marquardt lam*diag(A) (scale-free, floor 1e-3*mean diag)
     ):
         self.max_iters = max_iters
         self.damping = damping
@@ -54,6 +56,8 @@ class LMSolver:
         self.up = up
         self.down = down
         self.record = record
+        self.callback = callback
+        self.damping_mode = damping_mode
 
     def _assemble(self, model: Model, theta: Tensor, energies: Sequence[Energy], need_jac: bool):
         state = model.forward(theta)
@@ -75,7 +79,13 @@ class LMSolver:
         block, state = self._assemble(model, theta, energies, need_jac=True)
         cost = block.cost
         for it in range(self.max_iters):
-            damp = (0.0 if self.mode == "pure" else lam).view(B, 1, 1) * eye
+            if self.damping_mode == "diag":
+                dg = torch.diagonal(block.A, dim1=-2, dim2=-1)                       # (B,P)
+                dg = dg.clamp_min(dg.mean(-1, keepdim=True) * 1e-3)
+                damp = (0.0 if self.mode == "pure" else lam).view(B, 1) * dg
+                damp = torch.diag_embed(damp)
+            else:
+                damp = (0.0 if self.mode == "pure" else lam).view(B, 1, 1) * eye
             d = torch.linalg.solve(block.A + damp, block.g.unsqueeze(-1)).squeeze(-1)  # (B,P)
             theta_try = theta - d
 
@@ -85,6 +95,8 @@ class LMSolver:
                 cost = block.cost
                 if self.record:
                     history.append(cost.detach().mean().item())
+                if self.callback is not None:
+                    self.callback(it, theta, cost)
                 continue
 
             # Adaptive LM: accept per sample only if cost decreased.
@@ -101,6 +113,8 @@ class LMSolver:
             lam = torch.where(acc, (lam * self.down).clamp_min(1e-6), (lam * self.up).clamp_max(1e6))
             if self.record:
                 history.append(cost.detach().mean().item())
+            if self.callback is not None:
+                self.callback(it, theta, cost)
 
         diagnostics = {"final_cost": cost.detach(), "damping": lam.detach()}
         if self.record:
