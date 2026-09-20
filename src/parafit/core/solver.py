@@ -49,7 +49,10 @@ class LMSolver:
         record: bool = False,
         callback=None,               # optional fn(it, theta, cost) called after every iteration
         damping_mode: str = "identity",  # "identity": lam*I | "diag": Marquardt lam*diag(A) (scale-free, floor 1e-3*mean diag)
+        solve_dtype=torch.float64,     # dtype of the normal-equation solve (A + damp) d = g; None = params dtype. Default float64: the
+                                       # only precision-sensitive step (cond(A) ~1e6-1e7), ~0.5 ms extra at P=816; everything else stays in params dtype
     ):
+        self.solve_dtype = solve_dtype
         self.max_iters = max_iters
         self.damping = damping
         self.mode = mode
@@ -69,6 +72,11 @@ class LMSolver:
             block = b if block is None else block + b
         return block, state
 
+    def _linsolve(self, A: Tensor, g: Tensor) -> Tensor:
+        """(A) d = g in solve_dtype (float64 by default), result cast back to the params dtype."""
+        sd = self.solve_dtype or A.dtype
+        return torch.linalg.solve(A.to(sd), g.to(sd).unsqueeze(-1)).squeeze(-1).to(A.dtype)
+
     def solve(self, model: Model, init_params: Tensor, energies: Sequence[Energy]) -> SolveResult:
         theta = init_params.clone()
         B, P = theta.shape
@@ -86,7 +94,7 @@ class LMSolver:
                 damp = torch.diag_embed(damp)
             else:
                 damp = (0.0 if self.mode == "pure" else lam).view(B, 1, 1) * eye
-            d = torch.linalg.solve(block.A + damp, block.g.unsqueeze(-1)).squeeze(-1)  # (B,P)
+            d = self._linsolve(block.A + damp, block.g)                                   # (B,P)
             theta_try = theta - d
 
             if self.mode == "fixed" or self.mode == "pure":
