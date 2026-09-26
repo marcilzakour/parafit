@@ -27,6 +27,9 @@ from parafit.registry import register_model
 _TIP_VERTS = [744, 320, 443, 555, 672]
 _OPENPOSE_PERM = [0, 13, 14, 15, 16, 1, 2, 3, 17, 4, 5, 6, 18, 10, 11, 12, 19, 7, 8, 9, 20]
 _TIP_DISTAL = [15, 3, 6, 12, 9]
+# smplx / HaMeR / HaWoR fingertip vertices (their MANO wrappers' `vertex_ids['mano']`)
+_TIP_VERTS_SMPLX = [744, 320, 443, 554, 671]
+_OP_TIPS = [4, 8, 12, 16, 20]
 
 
 @register_model("mano", extra="mano")
@@ -66,7 +69,13 @@ def _mano_to_openpose(J_regressor: Tensor, verts: Tensor) -> Tensor:
 
 class ManoModel(Model):
     def __init__(self, mano_assets_root: str, betas: Optional[Tensor] = None,
-                 num_joints: int = 21, center_idx: int = 0, side: str = "right"):
+                 num_joints: int = 21, center_idx: int = 0, side: str = "right", joints: str = "regressed"):
+        """joints: "regressed" = J_regressor applied to the POSED vertices (default, UA-Fit convention) or "kinematic" =
+        the skeleton's joint centres (the 16 transform origins) + smplx fingertip vertices, the convention of HaMeR / WiLoR /
+        HaWoR outputs and of their GT exports (they differ by up to ~8 mm at the knuckles for the same pose)."""
+        if joints not in ("regressed", "kinematic"): raise ValueError(f"joints must be 'regressed' or 'kinematic', got {joints!r}")
+        self.joints = joints
+        self._tips = _TIP_VERTS_SMPLX if joints == "kinematic" else _TIP_VERTS
         from manotorch.manolayer import ManoLayer  # raises ImportError -> parafit[mano]
 
         self.mano_layer = ManoLayer(
@@ -99,7 +108,11 @@ class ManoModel(Model):
         betas = self._betas_for(B, params)
         out = self.mano_layer(pose, betas)
         verts = out.verts                                        # (B,778,3), centered at center_idx
-        jc = _mano_to_openpose(self.J_regressor.to(params), verts)[:, : self.num_joints]
+        if self.joints == "kinematic":
+            jc = out.joints.clone(); jc[:, _OP_TIPS] = verts[:, self._tips]                # manotorch joints: transform origins, OpenPose order
+            jc = jc[:, : self.num_joints]
+        else:
+            jc = _mano_to_openpose(self.J_regressor.to(params), verts)[:, : self.num_joints]
         landmarks = jc + trans.unsqueeze(1)
         return State(landmarks=landmarks, verts=verts + trans.unsqueeze(1),
                      transforms=out.transforms_abs, batch_size=[B])
@@ -155,7 +168,7 @@ class ManoModel(Model):
         betas = self._betas_for(B, params)
         shapedirs = ml.th_shapedirs.to(params); v_shaped = ml.th_v_template.to(params) + torch.einsum("vdk,bk->bvd", shapedirs, betas)
         J_rest = torch.matmul(self.J_regressor.to(params), v_shaped)                                     # (B,16,3)
-        tips = _TIP_VERTS; w = ml.th_weights.to(params)[tips]                                            # (5,16)
+        tips = self._tips; w = ml.th_weights.to(params)[tips]                                            # (5,16)
         posed = ml.th_posedirs.to(params)[tips]                                                          # (5,3,135)
         R_loc = so3_exp(theta.reshape(-1, 3)).reshape(B, 16, 3, 3)
         I3 = torch.eye(3, dtype=dtp, device=params.device)
@@ -198,7 +211,7 @@ class ManoModel(Model):
         bS = torch.matmul(shapedirs, betas.transpose(0, 1)).permute(2, 0, 1)  # (B,778,3)
         v_rest = self.mano_layer.th_v_template.to(params) + bS   # (B,778,3)
         J_rest = torch.matmul(J_reg, v_rest)                     # (B,16,3)
-        tips_rest = v_rest[:, _TIP_VERTS]                        # (B,5,3)
+        tips_rest = v_rest[:, self._tips]                        # (B,5,3)
         d = _TIP_DISTAL
         tip_pos = pg[:, d] + torch.einsum("bdij,bdj->bdi", Rg[:, d], tips_rest - J_rest[:, d])  # (B,5,3)
         P = torch.cat([pg, tip_pos], dim=1)                      # (B,21,3) stack order
@@ -209,7 +222,9 @@ class ManoModel(Model):
         d_e = diff.unsqueeze(-1).expand(B, S, 16, 3, 3)
         cr = torch.cross(a_e, d_e, dim=3) * A.view(1, S, 16, 1, 1)
         dP = cr.permute(0, 1, 3, 2, 4).reshape(B, S, 3, 48)      # (B,21,3,48) stack order
-        if self.tip_corrective:
+        if self.tip_corrective and self.joints == "kinematic":
+            dP = torch.cat([dP[:, :16], self._tip_jacobian(params, state)], dim=1)    # joint centres are exact rigid rows; only the tips carry skinning
+        elif self.tip_corrective:
             if self._exact_idx is None:                                              # support of the joint regressor + the 5 tips
                 nz = (self.J_regressor.abs() > 1e-8).any(0).nonzero().flatten().tolist()
                 self._exact_idx = sorted(set(nz) | set(_TIP_VERTS))
