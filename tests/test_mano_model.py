@@ -98,6 +98,41 @@ def test_multiview_overfit():
     assert err_mm < 3.0, err_mm
 
 
+@pytest.mark.parametrize("joints", ["regressed", "kinematic"])
+@pytest.mark.parametrize("center_idx", [0, 9, None])
+@pytest.mark.parametrize("flat_hand_mean", [True, False])
+def test_exact_jacobians_match_fd_float64(joints, center_idx, flat_hand_mean):
+    """tip_corrective=True must be EXACT (float64 central differences, additive theta, the LM's update): landmarks and
+    the (centred) vertex Jacobian, for the root centre (default), a non-root centre (joint 9, middle MCP) and no
+    centring, with and without the MANO mean pose."""
+    m = _make_model()
+    from parafit.models.mano import ManoModel
+    m = ManoModel(mano_assets_root=_MANO_ROOT, center_idx=center_idx, joints=joints, flat_hand_mean=flat_hand_mean)
+    m.mano_layer = m.mano_layer.double(); m.J_regressor = m.mano_layer.th_J_regressor
+    m.tip_corrective = True
+    B = 2
+    g = torch.Generator().manual_seed(0)
+    theta = torch.zeros(B, 51, dtype=torch.float64)
+    theta[:, :48] = 0.3 * torch.randn(B, 48, generator=g, dtype=torch.float64)
+    theta[:, 48:] = 0.05 * torch.randn(B, 3, generator=g, dtype=torch.float64)
+    st = m.forward(theta)
+    Jan = m.landmark_jacobian(theta, st)                                   # (B,J,3,51)
+    vid = [0, 100, 320, 444, 700]
+    Van = m._vertex_jacobian(theta, st, vid)                               # (B,5,3,48)
+    eps = 1e-6
+    Jfd = torch.zeros_like(Jan); Vfd = torch.zeros_like(Van)
+    for k in range(51):
+        d = torch.zeros_like(theta); d[:, k] = eps
+        sp, sm = m.forward(theta + d), m.forward(theta - d)
+        Jfd[..., k] = (sp.landmarks - sm.landmarks) / (2 * eps)
+        if k < 48:
+            Vfd[..., k] = (sp.verts[:, vid] - sm.verts[:, vid]) / (2 * eps)
+    relJ = ((Jan - Jfd).norm() / Jfd.norm()).item(); relV = ((Van - Vfd).norm() / Vfd.norm()).item()
+    print(f"[mano-exact {joints} c{center_idx} flat={flat_hand_mean}] landmark rel-err={relJ:.2e} vertex rel-err={relV:.2e}")
+    assert relJ < 1e-6, relJ
+    assert relV < 1e-6, relV
+
+
 if __name__ == "__main__":
     test_forward_shape_and_scale()
     test_analytic_jacobian_is_good_gn_direction()
